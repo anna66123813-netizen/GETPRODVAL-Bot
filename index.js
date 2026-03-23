@@ -26,9 +26,16 @@ const client = new Client({
 client.once('ready', async () => {
   console.log(`✅ Bot online as ${client.user.tag}`);
 
-  const channel = client.channels.cache.get(process.env.DISCORD_CHANNEL_ID);
+  let channel;
+  try {
+    channel = await client.channels.fetch(process.env.DISCORD_CHANNEL_ID);
+  } catch (e) {
+    console.error(`❌ Cannot find Discord channel: ${e.message}`);
+    console.error('Check DISCORD_CHANNEL_ID and that the bot has been added to the server.');
+    return;
+  }
   if (!channel) {
-    console.error('❌ Cannot find Discord channel. Check DISCORD_CHANNEL_ID.');
+    console.error('❌ Channel returned null. Check DISCORD_CHANNEL_ID.');
     return;
   }
 
