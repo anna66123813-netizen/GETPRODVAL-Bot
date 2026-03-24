@@ -23,7 +23,7 @@ const { createDailyBriefing, createEveningCheckin } = require('./src/scheduler')
 console.log('✅ Modules loaded');
 
 // Validate required environment variables
-const required = ['DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID', 'ANTHROPIC_API_KEY', 'NOTION_API_KEY'];
+const required = ['DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID', 'OPENROUTER_API_KEY', 'NOTION_API_KEY'];
 const missing = required.filter(key => !process.env[key]);
 if (missing.length > 0) {
   console.error(`❌ Missing environment variables: ${missing.join(', ')}`);
