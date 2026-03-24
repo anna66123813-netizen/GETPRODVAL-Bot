@@ -1,11 +1,11 @@
-// src/gemini.js — Gemini API with multi-turn conversation + memory
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// src/gemini.js — Claude API with multi-turn conversation + memory
+const Anthropic = require('@anthropic-ai/sdk');
 const { getMemoryAsText, updateMemory } = require('./memory');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // In-memory conversation history per Discord channel
-// Format: [{ role: 'user'|'model', parts: [{ text }] }]
+// Format: [{ role: 'user'|'assistant', content: string }]
 const conversations = {};
 
 function buildSystemPrompt() {
@@ -42,32 +42,48 @@ function getHistory(channelId) {
 
 function addToHistory(channelId, role, text) {
   const history = getHistory(channelId);
-  // Gemini uses 'user' and 'model' roles
-  history.push({ role, parts: [{ text }] });
+  // Claude uses 'user' and 'assistant' roles
+  history.push({ role, content: text });
   // Keep last 20 turns (10 exchanges) to stay within token limits
   if (history.length > 20) conversations[channelId] = history.slice(-20);
+}
+
+// Retry an async fn up to maxRetries times on 429, with exponential backoff
+async function withRetry(fn, maxRetries = 3) {
+  let delay = 5000; // start at 5s, doubles each attempt: 5s → 10s → 20s
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 = err?.status === 429
+        || err?.message?.includes('429')
+        || err?.message?.toLowerCase().includes('rate limit');
+
+      if (!is429 || attempt === maxRetries) throw err;
+
+      console.warn(`⚠️ Claude 429 rate limit — attempt ${attempt}/${maxRetries}, retrying in ${delay / 1000}s...`);
+      await new Promise(r => setTimeout(r, delay));
+      delay *= 2;
+    }
+  }
 }
 
 async function chat(channelId, userMessage, extraContext = '') {
   const systemPrompt = buildSystemPrompt()
     + (extraContext ? `\n\n## Current Notion Data\n${extraContext}` : '');
 
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction: systemPrompt,
-  });
-
-  const chatSession = model.startChat({
-    history: getHistory(channelId),
-    generationConfig: { maxOutputTokens: 1500, temperature: 0.7 },
-  });
-
-  const result = await chatSession.sendMessage(userMessage);
-  const assistantText = result.response.text();
-
-  // Save to conversation history
   addToHistory(channelId, 'user', userMessage);
-  addToHistory(channelId, 'model', assistantText);
+
+  const response = await withRetry(() => client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 1500,
+    system: systemPrompt,
+    messages: getHistory(channelId),
+  }));
+
+  const assistantText = response.content[0].text;
+
+  addToHistory(channelId, 'assistant', assistantText);
 
   // Auto-extract and save [REMEMBER:] tags
   const rememberMatches = assistantText.match(/\[REMEMBER:\s*(.+?)\]/g) || [];
@@ -80,11 +96,6 @@ async function chat(channelId, userMessage, extraContext = '') {
 }
 
 async function generateBriefing(notionData, briefingType = 'morning') {
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction: buildSystemPrompt(),
-  });
-
   const today = new Date().toLocaleDateString('zh-HK', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   });
@@ -117,8 +128,14 @@ Structure:
 Keep it brief and calm. Format nicely for Discord.`,
   };
 
-  const result = await model.generateContent(prompts[briefingType] || prompts.morning);
-  return result.response.text();
+  const response = await withRetry(() => client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 1500,
+    system: buildSystemPrompt(),
+    messages: [{ role: 'user', content: prompts[briefingType] || prompts.morning }],
+  }));
+
+  return response.content[0].text;
 }
 
 function clearHistory(channelId) {
