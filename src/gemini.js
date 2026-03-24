@@ -78,7 +78,7 @@ async function chat(channelId, userMessage, extraContext = '') {
   addToHistory(channelId, 'user', userMessage);
 
   const response = await withRetry(() => client.chat.completions.create({
-    model: 'meta-llama/llama-3.1-8b-instruct:free',
+    model: 'openrouter/free',
     max_tokens: 1500,
     messages: [{ role: 'system', content: systemPrompt }, ...getHistory(channelId)],
   }));
@@ -131,7 +131,7 @@ Keep it brief and calm. Format nicely for Discord.`,
   };
 
   const response = await withRetry(() => client.chat.completions.create({
-    model: 'meta-llama/llama-3.1-8b-instruct:free',
+    model: 'openrouter/free',
     max_tokens: 1500,
     messages: [
       { role: 'system', content: buildSystemPrompt() },
