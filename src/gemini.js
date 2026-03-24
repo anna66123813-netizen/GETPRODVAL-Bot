@@ -78,7 +78,7 @@ async function chat(channelId, userMessage, extraContext = '') {
   addToHistory(channelId, 'user', userMessage);
 
   const response = await withRetry(() => client.chat.completions.create({
-    model: 'openrouter/free',
+    model: 'google/gemini-2.0-flash-exp:free',
     max_tokens: 1500,
     messages: [{ role: 'system', content: systemPrompt }, ...getHistory(channelId)],
   }));
@@ -131,7 +131,7 @@ Keep it brief and calm. Format nicely for Discord.`,
   };
 
   const response = await withRetry(() => client.chat.completions.create({
-    model: 'openrouter/free',
+    model: 'google/gemini-2.0-flash-exp:free',
     max_tokens: 1500,
     messages: [
       { role: 'system', content: buildSystemPrompt() },
