@@ -1,8 +1,11 @@
 // src/gemini.js — Claude API with multi-turn conversation + memory
-const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 const { getMemoryAsText, updateMemory } = require('./memory');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: 'https://openrouter.ai/api/v1',
+});
 
 // In-memory conversation history per Discord channel
 // Format: [{ role: 'user'|'assistant', content: string }]
@@ -74,14 +77,13 @@ async function chat(channelId, userMessage, extraContext = '') {
 
   addToHistory(channelId, 'user', userMessage);
 
-  const response = await withRetry(() => client.messages.create({
-    model: 'claude-haiku-4-5',
+  const response = await withRetry(() => client.chat.completions.create({
+    model: 'anthropic/claude-haiku-4-5:free',
     max_tokens: 1500,
-    system: systemPrompt,
-    messages: getHistory(channelId),
+    messages: [{ role: 'system', content: systemPrompt }, ...getHistory(channelId)],
   }));
 
-  const assistantText = response.content[0].text;
+  const assistantText = response.choices[0].message.content;
 
   addToHistory(channelId, 'assistant', assistantText);
 
@@ -128,14 +130,16 @@ Structure:
 Keep it brief and calm. Format nicely for Discord.`,
   };
 
-  const response = await withRetry(() => client.messages.create({
-    model: 'claude-haiku-4-5',
+  const response = await withRetry(() => client.chat.completions.create({
+    model: 'anthropic/claude-haiku-4-5:free',
     max_tokens: 1500,
-    system: buildSystemPrompt(),
-    messages: [{ role: 'user', content: prompts[briefingType] || prompts.morning }],
+    messages: [
+      { role: 'system', content: buildSystemPrompt() },
+      { role: 'user', content: prompts[briefingType] || prompts.morning },
+    ],
   }));
 
-  return response.content[0].text;
+  return response.choices[0].message.content;
 }
 
 function clearHistory(channelId) {
