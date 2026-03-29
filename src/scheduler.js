@@ -20,7 +20,9 @@ function splitMessage(text, maxLen = 1900) {
 
 async function fetchNotionData() {
   try {
-    return await getWorkspaceSummary();
+    const data = await getWorkspaceSummary();
+    console.log('[Notion] Data preview (first 200 chars):', String(data).slice(0, 200));
+    return data;
   } catch (e) {
     console.error('Notion fetch error:', e.message);
     return '_Could not fetch Notion data. Check your NOTION_API_KEY and integration permissions._';

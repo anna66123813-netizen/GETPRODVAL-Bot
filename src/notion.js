@@ -75,11 +75,13 @@ async function getWorkspaceSummary() {
 
   // Get databases
   const databases = await listDatabases();
+  console.log(`[Notion] Found ${databases.length} database(s):`, databases.map(d => d.title).join(', ') || '(none)');
   summary.push(`**Notion Databases (${databases.length}):** ${databases.map(d => d.title).join(', ')}`);
 
   // Get tasks from each database (first 5 items per DB)
   for (const db of databases.slice(0, 3)) {
     const items = await queryDatabase(db.id);
+    console.log(`[Notion] "${db.title}" returned ${items.length} item(s)`);
     if (items.length === 0) continue;
 
     summary.push(`\n**${db.title}** (${items.length} items):`);
@@ -101,6 +103,10 @@ async function getWorkspaceSummary() {
 
   // Recent pages
   const pages = await getRecentPages(5);
+  console.log(`[Notion] Found ${pages.length} recent page(s)`);
+  if (pages.length === 0 && databases.length === 0) {
+    console.error('[Notion] Fetch returned 0 results — check NOTION_API_KEY and integration permissions');
+  }
   if (pages.length > 0) {
     summary.push(`\n**Recently Updated Pages:**`);
     for (const page of pages) {
