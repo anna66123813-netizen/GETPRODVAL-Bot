@@ -1,15 +1,40 @@
 // src/gemini.js — Claude API with multi-turn conversation + memory
 const OpenAI = require('openai');
+const fs = require('fs');
+const path = require('path');
 const { getMemoryAsText, updateMemory } = require('./memory');
+const { getFallbackResponse, getOfflineMorning, getOfflineEvening, isOfflineError } = require('./offline');
 
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
   baseURL: 'https://openrouter.ai/api/v1',
 });
 
-// In-memory conversation history per Discord channel
+// Persist conversation history across restarts
+const HISTORY_FILE = path.join(__dirname, '../data/conversations.json');
+
+function loadConversations() {
+  try {
+    if (fs.existsSync(HISTORY_FILE)) {
+      return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.warn('⚠️ Could not load conversation history:', e.message);
+  }
+  return {};
+}
+
+function saveConversations(conversations) {
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(conversations, null, 2));
+  } catch (e) {
+    console.warn('⚠️ Could not save conversation history:', e.message);
+  }
+}
+
+// In-memory conversation history per Discord channel (loaded from disk on start)
 // Format: [{ role: 'user'|'assistant', content: string }]
-const conversations = {};
+const conversations = loadConversations();
 
 function buildSystemPrompt() {
   const memory = getMemoryAsText();
@@ -53,10 +78,10 @@ function getHistory(channelId) {
 
 function addToHistory(channelId, role, text) {
   const history = getHistory(channelId);
-  // Claude uses 'user' and 'assistant' roles
   history.push({ role, content: text });
   // Keep last 20 turns (10 exchanges) to stay within token limits
   if (history.length > 20) conversations[channelId] = history.slice(-20);
+  saveConversations(conversations);
 }
 
 // Retry an async fn up to maxRetries times on 429, with exponential backoff
@@ -85,13 +110,24 @@ async function chat(channelId, userMessage, extraContext = '') {
 
   addToHistory(channelId, 'user', userMessage);
 
-  const response = await withRetry(() => client.chat.completions.create({
-    model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    max_tokens: 1500,
-    messages: [{ role: 'system', content: systemPrompt }, ...getHistory(channelId)],
-  }));
-
-  const assistantText = response.choices[0].message.content;
+  let assistantText;
+  try {
+    const response = await withRetry(() => client.chat.completions.create({
+      model: 'nvidia/nemotron-3-super-120b-a12b:free',
+      max_tokens: 1500,
+      messages: [{ role: 'system', content: systemPrompt }, ...getHistory(channelId)],
+    }));
+    assistantText = response.choices[0].message.content;
+  } catch (err) {
+    if (isOfflineError(err)) {
+      console.warn('🔌 AI API offline/unreachable:', err.message);
+      // Don't add fallback to history so the user can retry properly
+      conversations[channelId]?.pop(); // remove the user message we just added
+      saveConversations(conversations);
+      return getFallbackResponse();
+    }
+    throw err;
+  }
 
   addToHistory(channelId, 'assistant', assistantText);
 
@@ -126,20 +162,28 @@ ${notionData}
 用你嘅風格發一個evening message——溫柔收尾，問Dory今日有冇一件事係值得感謝嘅。如果佢今日睇起嚟好忙或者好多嘢，可以輕輕提醒佢做呢啲係為咗咩。`,
   };
 
-  const response = await withRetry(() => client.chat.completions.create({
-    model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    max_tokens: 1500,
-    messages: [
-      { role: 'system', content: buildSystemPrompt() },
-      { role: 'user', content: prompts[briefingType] || prompts.morning },
-    ],
-  }));
-
-  return response.choices[0].message.content;
+  try {
+    const response = await withRetry(() => client.chat.completions.create({
+      model: 'nvidia/nemotron-3-super-120b-a12b:free',
+      max_tokens: 1500,
+      messages: [
+        { role: 'system', content: buildSystemPrompt() },
+        { role: 'user', content: prompts[briefingType] || prompts.morning },
+      ],
+    }));
+    return response.choices[0].message.content;
+  } catch (err) {
+    if (isOfflineError(err)) {
+      console.warn('🔌 AI API offline — using fallback briefing');
+      return briefingType === 'evening' ? getOfflineEvening() : getOfflineMorning();
+    }
+    throw err;
+  }
 }
 
 function clearHistory(channelId) {
   conversations[channelId] = [];
+  saveConversations(conversations);
 }
 
 module.exports = { chat, generateBriefing, clearHistory };

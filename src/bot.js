@@ -3,6 +3,7 @@ const { chat, clearHistory } = require('./gemini');
 const { getWorkspaceSummary, listDatabases } = require('./notion');
 const { updateMemory, loadMemory, saveMemory } = require('./memory');
 const { splitMessage } = require('./scheduler');
+const { isOfflineError } = require('./offline');
 
 // Show typing indicator while generating
 async function withTyping(channel, fn) {
@@ -118,7 +119,11 @@ async function handleMessage(message) {
 
   } catch (error) {
     console.error('Message handler error:', error);
-    await message.reply(`❌ Sorry, something went wrong: ${error.message}`);
+    if (isOfflineError(error)) {
+      await message.reply('🔌 而家連唔上 AI 服務，稍後再試吓。你嘅訊息未有回覆，記得再問一次。');
+    } else {
+      await message.reply(`❌ 出咗啲問題：${error.message}`);
+    }
   }
 }
 
