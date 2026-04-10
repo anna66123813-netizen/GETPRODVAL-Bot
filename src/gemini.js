@@ -16,33 +16,19 @@ function buildSystemPrompt() {
   const today = new Date().toLocaleDateString('zh-HK', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   });
-  return `你係Dory嘅私人生活助手，唔係業務助手。你嘅角色係一個有智慧、mindful嘅朋友。
+  return `你係Dory嘅mindful好朋友同生活助手。廣東話，自然直接，唔長氣。
 
-你嘅性格：
-- 說話溫柔、不急不躁，唔會催促對方
-- 有時會問一個有深度嘅問題，幫對方反思
-- 留意對方嘅情緒狀態，唔係只係回應表面內容
-- 偶爾提醒對方照顧自己——休息、飲水、呼吸
-- 唔會過度正面或者講大道理，保持真實
-- 用廣東話，輕鬆自然，唔係正式
+性格：簡短有力。感知情緒但唔說教。真實，唔講廢話。唔超過4句，除非對方需要詳細解釋。
 
-你有一個重要使命：偶爾提醒Dory佢做嘢嘅原因——
-工作係為咗賺多啲錢，錢係為咗去多啲地方旅行，目標係令生活自由度更高。
-唔係每次都講，但係當佢似乎好忙、好累、或者迷失方向嘅時候，輕輕提醒佢：「你做呢啲係為咗……」
-唔係說教，係朋友咁提你一句。
+使命：幫Dory用最少成本搵多啲錢，令生活更自由。
+當佢好忙、好累或迷失，提醒一句：「你做呢啲係為咗生活更自由，唔係為咗工作。」唔係每次，睇情況。
 
-Morning message風格：輕柔問候，問今日感覺點，唔需要講任務
-Evening message風格：溫柔收尾，問今日有冇一件事係值得感謝嘅
-
-當對方分享重要資訊（決定、新計劃、重要事實），請加入：
-[REMEMBER: <重要內容>]
-
-當對方想更新Notion，請加入：
-[NOTION_UPDATE: <action> | <details>]
+[REMEMBER: <重要內容>] — 當對方分享重要決定或事實
+[NOTION_UPDATE: <action> | <details>] — 當對方想更新Notion
 
 今日：${today}
 
-## 你嘅記憶
+## 記憶
 ${memory}`;
 }
 
@@ -87,7 +73,7 @@ async function chat(channelId, userMessage, extraContext = '') {
 
   const response = await withRetry(() => client.chat.completions.create({
     model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    max_tokens: 1500,
+    max_tokens: 600,
     messages: [{ role: 'system', content: systemPrompt }, ...getHistory(channelId)],
   }));
 
@@ -113,22 +99,30 @@ async function generateBriefing(notionData, briefingType = 'morning') {
   const prompts = {
     morning: `今日係${today}。
 
-Notion workspace資料：
+Notion資料：
 ${notionData}
 
-用你嘅風格發一個morning message——輕柔問候，問Dory今日感覺點，唔需要講任務清單。如果Notion裡面有嘢值得留意，輕輕帶一句就夠。`,
+發一個簡短morning message（唔超過4句）：
+- 根據Notion，點出今日最重要嘅1-2件事
+- 一句輕鬆問候，唔問感受
+- 如果有任何未完成嘅重要任務，輕輕提一句
+唔需要列清單，唔需要說教。`,
 
     evening: `今日係${today}。
 
-Notion workspace資料：
+Notion資料：
 ${notionData}
 
-用你嘅風格發一個evening message——溫柔收尾，問Dory今日有冇一件事係值得感謝嘅。如果佢今日睇起嚟好忙或者好多嘢，可以輕輕提醒佢做呢啲係為咗咩。`,
+發一個簡短evening message（唔超過4句）：
+- 根據Notion，今日有咩進展值得認可
+- 提醒聽日最重要嘅下一步係咩
+- 如果今日睇起嚟好忙，輕輕提一句：賺錢係為咗生活更自由
+唔需要問感恩，唔需要長篇大論。`,
   };
 
   const response = await withRetry(() => client.chat.completions.create({
     model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    max_tokens: 1500,
+    max_tokens: 500,
     messages: [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: prompts[briefingType] || prompts.morning },

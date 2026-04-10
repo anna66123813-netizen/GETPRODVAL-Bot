@@ -41,9 +41,8 @@ async function createDailyBriefing(channel) {
   const briefing = await generateBriefing(notionData, 'morning');
   updateMemory({ lastBriefingDate: today });
 
-  const parts = splitMessage(`📋 **Daily Briefing:**\n\n${briefing}`);
+  const parts = splitMessage(`📋 **今日重點：**\n\n${briefing}`);
   for (const part of parts) await channel.send(part);
-  await channel.send('---\n💬 _Reply anytime to chat or update your tasks._');
 }
 
 async function createEveningCheckin(channel) {
@@ -57,9 +56,8 @@ async function createEveningCheckin(channel) {
   const notionData = await fetchNotionData();
   const checkin = await generateBriefing(notionData, 'evening');
 
-  const parts = splitMessage(`📊 **End-of-Day Summary:**\n\n${checkin}`);
+  const parts = splitMessage(`📌 **Progress Check:**\n\n${checkin}`);
   for (const part of parts) await channel.send(part);
-  await channel.send('---\n🌙 _Rest well! See you tomorrow morning._');
 }
 
 module.exports = { createDailyBriefing, createEveningCheckin, splitMessage };
