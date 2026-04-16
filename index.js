@@ -19,11 +19,11 @@ console.log('✅ Env loaded');
 const { Client, GatewayIntentBits } = require('discord.js');
 const cron = require('node-cron');
 const { handleMessage } = require('./src/bot');
-const { createDailyBriefing, createEveningCheckin } = require('./src/scheduler');
+const { createDailyBriefing, createEveningCheckin, sendBriefingFromNotion } = require('./src/scheduler');
 console.log('✅ Modules loaded');
 
 // Validate required environment variables
-const required = ['DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID', 'OPENROUTER_API_KEY', 'NOTION_API_KEY'];
+const required = ['DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID'];
 const missing = required.filter(key => !process.env[key]);
 if (missing.length > 0) {
   console.error(`❌ Missing environment variables: ${missing.join(', ')}`);
@@ -57,7 +57,11 @@ client.once('ready', async () => {
 
   const morningUTC = parseInt(process.env.MORNING_HOUR_UTC ?? '1');
   cron.schedule(`0 ${morningUTC} * * *`, () => createDailyBriefing(channel));
-  console.log(`⏰ Morning briefing: ${(morningUTC + 8) % 24}:00 HKT`);
+  console.log(`⏰ Morning reminder: ${(morningUTC + 8) % 24}:00 HKT`);
+
+  // 9:10am HKT (01:10 UTC) — 讀取 CCR 寫入嘅 Notion 簡報並發送至 Discord
+  cron.schedule('10 1 * * *', () => sendBriefingFromNotion(channel));
+  console.log(`📋 CCR briefing relay: 9:10 HKT`);
 
   const eveningUTC = parseInt(process.env.EVENING_HOUR_UTC ?? '13');
   cron.schedule(`0 ${eveningUTC} * * *`, () => createEveningCheckin(channel));
