@@ -1,14 +1,19 @@
-// src/gemini.js — Claude API with multi-turn conversation + memory
-const OpenAI = require('openai');
+// src/gemini.js — Vertex AI (Gemini) with multi-turn conversation + memory
+const { VertexAI } = require('@google-cloud/vertexai');
 const { getMemoryAsText, updateMemory } = require('./memory');
 
-const client = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: 'https://openrouter.ai/api/v1',
+// Parse service account credentials from Railway env var
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON);
+
+const vertexAI = new VertexAI({
+  project: credentials.project_id,
+  location: 'us-central1',
+  googleAuthOptions: { credentials },
 });
 
+const MODEL = 'gemini-2.0-flash-lite-001';
+
 // In-memory conversation history per Discord channel
-// Format: [{ role: 'user'|'assistant', content: string }]
 const conversations = {};
 
 function buildSystemPrompt() {
@@ -24,7 +29,12 @@ function buildSystemPrompt() {
 當佢好忙、好累或迷失，提醒一句：「你做呢啲係為咗生活更自由，唔係為咗工作。」唔係每次，睇情況。
 
 [REMEMBER: <重要內容>] — 當對方分享重要決定或事實
-[NOTION_UPDATE: <action> | <details>] — 當對方想更新Notion
+
+當對方想更新Notion，輸出以下格式之一（可同時輸出多個）：
+[NOTION_UPDATE: create_task | <database名稱> | <任務標題> | <備注（可選）>]
+[NOTION_UPDATE: complete | <任務標題關鍵字>]
+[NOTION_UPDATE: update_status | <任務標題關鍵字> | <新狀態>]
+[NOTION_UPDATE: add_note | <任務標題關鍵字> | <備注內容>]
 
 今日：${today}
 
@@ -39,46 +49,34 @@ function getHistory(channelId) {
 
 function addToHistory(channelId, role, text) {
   const history = getHistory(channelId);
-  // Claude uses 'user' and 'assistant' roles
   history.push({ role, content: text });
-  // Keep last 20 turns (10 exchanges) to stay within token limits
+  // Keep last 20 turns (10 exchanges)
   if (history.length > 20) conversations[channelId] = history.slice(-20);
-}
-
-// Retry an async fn up to maxRetries times on 429, with exponential backoff
-async function withRetry(fn, maxRetries = 3) {
-  let delay = 5000; // start at 5s, doubles each attempt: 5s → 10s → 20s
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      const is429 = err?.status === 429
-        || err?.message?.includes('429')
-        || err?.message?.toLowerCase().includes('rate limit');
-
-      if (!is429 || attempt === maxRetries) throw err;
-
-      console.warn(`⚠️ Claude 429 rate limit — attempt ${attempt}/${maxRetries}, retrying in ${delay / 1000}s...`);
-      await new Promise(r => setTimeout(r, delay));
-      delay *= 2;
-    }
-  }
 }
 
 async function chat(channelId, userMessage, extraContext = '') {
   const systemPrompt = buildSystemPrompt()
     + (extraContext ? `\n\n## Current Notion Data\n${extraContext}` : '');
 
-  addToHistory(channelId, 'user', userMessage);
+  const history = getHistory(channelId);
 
-  const response = await withRetry(() => client.chat.completions.create({
-    model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    max_tokens: 600,
-    messages: [{ role: 'system', content: systemPrompt }, ...getHistory(channelId)],
+  // Convert history to Vertex AI format (role: 'user'|'model')
+  const vertexHistory = history.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }],
   }));
 
-  const assistantText = response.choices[0].message.content;
+  const model = vertexAI.getGenerativeModel({
+    model: MODEL,
+    systemInstruction: systemPrompt,
+    generationConfig: { maxOutputTokens: 600 },
+  });
 
+  const chatSession = model.startChat({ history: vertexHistory });
+  const result = await chatSession.sendMessage(userMessage);
+  const assistantText = result.response.candidates[0].content.parts[0].text;
+
+  addToHistory(channelId, 'user', userMessage);
   addToHistory(channelId, 'assistant', assistantText);
 
   // Auto-extract and save [REMEMBER:] tags
@@ -99,37 +97,39 @@ async function generateBriefing(notionData, briefingType = 'morning') {
   const prompts = {
     morning: `今日係${today}。
 
-Notion資料：
+以下係從Notion database讀取嘅**真實資料**：
+---
 ${notionData}
+---
 
-發一個簡短morning message（唔超過4句）：
-- 根據Notion，點出今日最重要嘅1-2件事
-- 一句輕鬆問候，唔問感受
-- 如果有任何未完成嘅重要任務，輕輕提一句
-唔需要列清單，唔需要說教。`,
+發一個簡短morning brief（唔超過5句）：
+1. 輕鬆問候一句
+2. 列出今日待辦／未完成任務（最多3件，用真實名稱）
+3. 如果有狀態資訊，反映實際進度
+唔需要說教，只根據真實資料回覆。`,
 
     evening: `今日係${today}。
 
-Notion資料：
+以下係從Notion database讀取嘅**真實資料**：
+---
 ${notionData}
+---
 
-發一個簡短evening message（唔超過4句）：
-- 根據Notion，今日有咩進展值得認可
-- 提醒聽日最重要嘅下一步係咩
-- 如果今日睇起嚟好忙，輕輕提一句：賺錢係為咗生活更自由
-唔需要問感恩，唔需要長篇大論。`,
+發一個簡短evening check-in（唔超過5句）：
+1. 今日實際有咩任務完成或更新
+2. 提醒聽日最重要嘅下一步
+3. 如果任務好多，輕輕一句：賺錢係為咗生活更自由
+唔好憑空捏造任何內容。`,
   };
 
-  const response = await withRetry(() => client.chat.completions.create({
-    model: 'nvidia/nemotron-3-super-120b-a12b:free',
-    max_tokens: 500,
-    messages: [
-      { role: 'system', content: buildSystemPrompt() },
-      { role: 'user', content: prompts[briefingType] || prompts.morning },
-    ],
-  }));
+  const model = vertexAI.getGenerativeModel({
+    model: MODEL,
+    systemInstruction: buildSystemPrompt(),
+    generationConfig: { maxOutputTokens: 500 },
+  });
 
-  return response.choices[0].message.content;
+  const result = await model.generateContent(prompts[briefingType] || prompts.morning);
+  return result.response.candidates[0].content.parts[0].text;
 }
 
 function clearHistory(channelId) {
