@@ -6,13 +6,13 @@ const notion = new Client({ auth: process.env.NOTION_API_KEY });
 // Fetch all databases the integration has access to
 async function listDatabases() {
   try {
-    const response = await notion.search({
-      filter: { value: 'database', property: 'object' },
-    });
-    return response.results.map(db => ({
-      id: db.id,
-      title: db.title?.[0]?.plain_text || 'Untitled',
-    }));
+    const response = await notion.search({});
+    return response.results
+      .filter(r => r.object === 'database')
+      .map(db => ({
+        id: db.id,
+        title: db.title?.[0]?.plain_text || 'Untitled',
+      }));
   } catch (e) {
     console.error('Notion listDatabases error:', e.message);
     return [];
@@ -198,6 +198,56 @@ async function createTask(databaseId, title, notes = '') {
   }
 }
 
+// Search for pages/tasks by title keyword across all databases
+async function findPagesByTitle(titleHint) {
+  try {
+    const response = await notion.search({
+      query: titleHint,
+      filter: { value: 'page', property: 'object' },
+      page_size: 5,
+    });
+    return response.results;
+  } catch (e) {
+    console.error('Notion findPagesByTitle error:', e.message);
+    return [];
+  }
+}
+
+// Get today's tasks from all databases (not started or in progress)
+async function getTodayTodos() {
+  const databases = await listDatabases();
+  const todos = [];
+
+  for (const db of databases) {
+    const items = await queryDatabase(db.id);
+    for (const item of items) {
+      const title = item.properties?.Name?.title?.[0]?.plain_text
+        || item.properties?.title?.title?.[0]?.plain_text
+        || Object.values(item.properties || {}).find(p => p.type === 'title')?.title?.[0]?.plain_text
+        || 'Untitled';
+
+      const statusProp = item.properties?.Status;
+      const status = statusProp?.status?.name
+        || statusProp?.select?.name
+        || (item.properties?.Done?.checkbox === true ? '✅ Done' : '');
+
+      const dueDate = item.properties?.['Due Date']?.date?.start
+        || item.properties?.Date?.date?.start
+        || item.properties?.['截止日期']?.date?.start
+        || null;
+
+      todos.push({
+        id: item.id,
+        title,
+        status,
+        dueDate,
+        database: db.title,
+      });
+    }
+  }
+  return todos;
+}
+
 module.exports = {
   listDatabases,
   queryDatabase,
@@ -207,4 +257,6 @@ module.exports = {
   addNoteToPage,
   updateTaskStatus,
   createTask,
+  findPagesByTitle,
+  getTodayTodos,
 };
