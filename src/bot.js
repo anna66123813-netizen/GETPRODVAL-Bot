@@ -2,7 +2,7 @@
 const { chat, clearHistory } = require('./gemini');
 const { getWorkspaceSummary, listDatabases, findPagesByTitle, createTask, updateTaskStatus, addNoteToPage } = require('./notion');
 const { updateMemory, loadMemory, saveMemory } = require('./memory');
-const { splitMessage, createDailyBriefing, createEveningCheckin } = require('./scheduler');
+const { splitMessage, sendBriefingFromNotion } = require('./scheduler');
 
 // Show typing indicator while generating
 async function withTyping(channel, fn) {
@@ -98,51 +98,19 @@ async function handleMessage(message) {
     return;
   }
 
-  if (content.toLowerCase() === '!notion') {
-    await withTyping(message.channel, async () => {
-      const summary = await getWorkspaceSummary();
-      const parts = splitMessage(`**📋 Your Notion Workspace:**\n${summary}`);
-      for (const part of parts) await message.channel.send(part);
-    });
-    return;
-  }
-
-  if (content.toLowerCase().startsWith('!remember ')) {
-    const fact = content.slice(10).trim();
-    updateMemory({ keyFact: fact });
-    await message.reply(`✅ Got it! I'll remember: _"${fact}"_`);
-    return;
-  }
-
-  if (content.toLowerCase().startsWith('!project ')) {
-    const project = content.slice(9).trim();
-    updateMemory({ ongoingProjects: project });
-    await message.reply(`✅ Added to ongoing projects: _"${project}"_`);
-    return;
-  }
-
-  if (content.toLowerCase() === '!morning') {
-    await withTyping(message.channel, () => createDailyBriefing(message.channel));
-    return;
-  }
-
-  if (content.toLowerCase() === '!evening') {
-    await withTyping(message.channel, () => createEveningCheckin(message.channel));
+  if (content.toLowerCase() === '!briefing') {
+    await withTyping(message.channel, () => sendBriefingFromNotion(message.channel));
     return;
   }
 
   if (content.toLowerCase() === '!help') {
-    await message.channel.send(`**🤖 GETPRODVAL Bot Commands:**
+    await message.channel.send(`**🤖 淨賺大王 指令列表：**
 
-💬 **Just chat** — Ask me anything about your business
-📋 \`!notion\` — Show your Notion workspace summary
-🧠 \`!memory\` — Show what I remember about you
-💾 \`!remember <fact>\` — Manually save a key fact
-🚀 \`!project <name>\` — Add an ongoing project
-☀️ \`!morning\` — Trigger morning briefing now
-🌙 \`!evening\` — Trigger evening check-in now
-🗑️ \`!clear\` — Clear conversation history
-❓ \`!help\` — Show this help message`);
+💬 **直接傾偈** — 問任何業務問題
+📋 \`!briefing\` — 即刻讀取今日任務簡報
+🧠 \`!memory\` — 睇 Bot 記住咗咩
+🗑️ \`!clear\` — 清除對話記錄
+❓ \`!help\` — 顯示此列表`);
     return;
   }
 
