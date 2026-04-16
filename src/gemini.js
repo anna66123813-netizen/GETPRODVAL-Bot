@@ -11,7 +11,7 @@ const vertexAI = new VertexAI({
   googleAuthOptions: { credentials },
 });
 
-const MODEL = 'gemini-2.5-flash-lite-preview-04-17';
+const MODEL = 'gemini-2.5-flash-lite';
 
 // In-memory conversation history per Discord channel
 const conversations = {};
